@@ -15,6 +15,7 @@ import (
 type Server interface {
 	grpc.ServiceRegistrar
 	reflection.GRPCServer
+	GetConnStateMap() map[net.Conn]http.ConnState
 	StartAndWait(ctx context.Context) error
 }
 
