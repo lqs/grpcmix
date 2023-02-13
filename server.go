@@ -23,6 +23,7 @@ type Config struct {
 	ShutdownDelay     time.Duration
 	MaxHeaderBytes    int
 	GrpcServerOptions []grpc.ServerOption
+	OnStarted         func()
 }
 
 type server struct {
@@ -54,41 +55,54 @@ func (s *server) StartAndWait(ctx context.Context) error {
 	var connectionClose atomic.Bool
 
 	server := &http.Server{
-		Addr:           fmt.Sprintf(":%d", s.config.Port),
 		Handler:        NewHandler(s.grpcServer, s.httpHandler, connectionClose.Load()),
 		MaxHeaderBytes: s.config.MaxHeaderBytes,
 		ConnState:      s.updateConnState,
 	}
-	closed := make(chan struct{})
-	if ctx != nil {
-		go func() {
-			<-ctx.Done()
-			// don't call server.SetKeepAlivesEnabled here because it will close idle connections immediately
-			connectionClose.Store(true)
-			// round up to integer second
-			shutdownDelay := (s.config.ShutdownDelay + time.Second - time.Nanosecond).Truncate(time.Second)
-			for shutdownDelay > 0 {
-				// check for connections every 100ms for total 1s. if all checks are negative, shutdown the server
-				hasConnections := len(s.GetConnStateMap()) > 0
-				for i := 0; i < 10; i++ {
-					time.Sleep(100 * time.Millisecond)
-					hasConnections = hasConnections || len(s.GetConnStateMap()) > 0
-				}
-				shutdownDelay -= time.Second
-				if !hasConnections {
-					break
-				}
-			}
-			s.grpcServer.GracefulStop()
-			_ = server.Shutdown(context.Background())
-			close(closed)
-		}()
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+	listener, err := net.ListenTCP("tcp", &net.TCPAddr{Port: s.config.Port})
+	if err != nil {
+		return fmt.Errorf("failed to listen: %v", err)
+	}
+
+	done := make(chan error)
+	go func() {
+		defer close(done)
+		done <- server.Serve(listener)
+	}()
+
+	if s.config.OnStarted != nil {
+		s.config.OnStarted()
+	}
+
+	select {
+	case <-ctx.Done():
+		// don't call server.SetKeepAlivesEnabled here because it will close idle connections immediately
+		connectionClose.Store(true)
+		// round up to integer second
+		shutdownDelay := (s.config.ShutdownDelay + time.Second - time.Nanosecond).Truncate(time.Second)
+		for shutdownDelay > 0 {
+			// check for connections every 100ms for total 1s. if all checks are negative, shutdown the server
+			hasConnections := len(s.GetConnStateMap()) > 0
+			for i := 0; i < 10; i++ {
+				time.Sleep(100 * time.Millisecond)
+				hasConnections = hasConnections || len(s.GetConnStateMap()) > 0
+			}
+			shutdownDelay -= time.Second
+			if !hasConnections {
+				break
+			}
+		}
+		s.grpcServer.GracefulStop()
+		_ = server.Shutdown(context.Background())
+		<-done
+		return nil
+	case err := <-done:
+		// server.Serve() returned an error before context was canceled
 		return fmt.Errorf("failed to start server: %v", err)
 	}
-	<-closed
-	return nil
 }
 
 func (s *server) updateConnState(conn net.Conn, state http.ConnState) {
