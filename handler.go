@@ -15,8 +15,6 @@ type mixHandler struct {
 	grpcServer  *grpc.Server
 	grpcWeb     *grpcweb.WrappedGrpcServer
 	httpHandler http.Handler
-	// if true, set "Connection: close" header on HTTP response
-	connectionClose bool
 }
 
 func (h mixHandler) isGrpc() bool {
@@ -77,9 +75,6 @@ func (h mixHandler) handleHttp() bool {
 	if h.httpHandler == nil {
 		return false
 	}
-	if h.connectionClose {
-		h.writer.Header().Set("Connection", "close")
-	}
 	h.httpHandler.ServeHTTP(h.writer, h.request)
 	return true
 }
@@ -94,7 +89,7 @@ func (h mixHandler) handle() {
 	}
 }
 
-func NewHandler(grpcServer *grpc.Server, httpHandler http.Handler, connectionClose bool) http.Handler {
+func newHandler(grpcServer *grpc.Server, httpHandler http.Handler) http.Handler {
 	grpcWeb := grpcweb.WrapServer(grpcServer, grpcweb.WithOriginFunc(func(origin string) bool {
 		return true
 	}))
@@ -105,12 +100,11 @@ func NewHandler(grpcServer *grpc.Server, httpHandler http.Handler, connectionClo
 			}
 		}()
 		mixHandler{
-			writer:          writer,
-			request:         request,
-			grpcServer:      grpcServer,
-			grpcWeb:         grpcWeb,
-			httpHandler:     httpHandler,
-			connectionClose: connectionClose,
+			writer:      writer,
+			request:     request,
+			grpcServer:  grpcServer,
+			grpcWeb:     grpcWeb,
+			httpHandler: httpHandler,
 		}.handle()
 	}), &http2.Server{})
 }

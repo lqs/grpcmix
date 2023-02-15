@@ -56,7 +56,12 @@ func (s *server) StartAndWait(ctx context.Context) error {
 	var connectionClose atomic.Bool
 
 	server := &http.Server{
-		Handler:        NewHandler(s.grpcServer, s.httpHandler, connectionClose.Load()),
+		Handler: newHandler(s.grpcServer, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if connectionClose.Load() {
+				w.Header().Set("Connection", "close")
+			}
+			s.httpHandler.ServeHTTP(w, r)
+		})),
 		MaxHeaderBytes: s.config.MaxHeaderBytes,
 		ConnState:      s.updateConnState,
 	}
@@ -121,6 +126,7 @@ func (s *server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 	s.grpcServer.RegisterService(desc, impl)
 }
 
+// NewServer creates a new Server instance.
 func NewServer(config Config, httpHandler http.Handler) Server {
 	grpcServer := grpc.NewServer(config.GrpcServerOptions...)
 	return &server{
