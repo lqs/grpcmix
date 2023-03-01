@@ -1,12 +1,13 @@
 package grpcmix
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
-	"net/http"
-	"strings"
 )
 
 type mixHandler struct {
