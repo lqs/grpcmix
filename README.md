@@ -28,10 +28,9 @@ Add the following lines to your code:
 mixServer := grpcmix.NewServer(grpcmix.Config{
     Port:          8080,
     ShutdownDelay: 2 * time.Second,
-    httpHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Write([]byte("add your http handler here, like prometheus metrics, health check, ..."))
-    }),
-})
+}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    w.Write([]byte("add your http handler here, like prometheus metrics, health check, ..."))
+}))
 
 // register your grpc services
 yourservicepb.RegisterYourServiceServer(mixServer, YourServiceImpl{})
