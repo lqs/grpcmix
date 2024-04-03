@@ -3,13 +3,14 @@ package grpcmix
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type Server interface {
@@ -30,7 +31,7 @@ type Config struct {
 type server struct {
 	config       Config
 	connStateMap map[net.Conn]http.ConnState
-	mutex        sync.Mutex
+	mutex        sync.RWMutex // protects connStateMap
 	grpcServer   *grpc.Server
 	httpHandler  http.Handler
 }
@@ -43,8 +44,8 @@ func (s *server) GetServiceInfo() map[string]grpc.ServiceInfo {
 }
 
 func (s *server) GetConnStateMap() map[net.Conn]http.ConnState {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 	connStateMap := make(map[net.Conn]http.ConnState, len(s.connStateMap))
 	for conn, state := range s.connStateMap {
 		connStateMap[conn] = state
@@ -115,10 +116,12 @@ func (s *server) updateConnState(conn net.Conn, state http.ConnState) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	switch state {
-	case http.StateNew, http.StateActive, http.StateIdle:
+	case http.StateNew:
 		s.connStateMap[conn] = state
 	case http.StateHijacked, http.StateClosed:
 		delete(s.connStateMap, conn)
+	default:
+		// ignore other states
 	}
 }
 
