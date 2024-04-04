@@ -118,10 +118,12 @@ func (s *server) updateConnState(conn net.Conn, state http.ConnState) {
 	switch state {
 	case http.StateNew:
 		s.connStateMap[conn] = state
+	case http.StateActive, http.StateIdle:
+		if _, ok := s.connStateMap[conn]; ok {
+			s.connStateMap[conn] = state
+		}
 	case http.StateHijacked, http.StateClosed:
 		delete(s.connStateMap, conn)
-	default:
-		// ignore other states
 	}
 }
 
