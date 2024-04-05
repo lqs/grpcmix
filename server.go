@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -56,15 +57,20 @@ func (s *server) GetConnStateMap() map[net.Conn]http.ConnState {
 func (s *server) StartAndWait(ctx context.Context) error {
 	var connectionClose atomic.Bool
 
-	server := &http.Server{
-		Handler: newHandler(s.grpcServer, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if connectionClose.Load() {
-				w.Header().Set("Connection", "close")
-			}
-			s.httpHandler.ServeHTTP(w, r)
-		})),
+	http2Server := &http2.Server{}
+	handler, wait := newHandler(s.grpcServer, http2Server, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if connectionClose.Load() {
+			w.Header().Set("Connection", "close")
+		}
+		s.httpHandler.ServeHTTP(w, r)
+	}))
+	httpServer := &http.Server{
+		Handler:        handler,
 		MaxHeaderBytes: s.config.MaxHeaderBytes,
 		ConnState:      s.updateConnState,
+	}
+	if err := http2.ConfigureServer(httpServer, http2Server); err != nil {
+		return fmt.Errorf("failed to configure HTTP/2 server: %v", err)
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -77,7 +83,7 @@ func (s *server) StartAndWait(ctx context.Context) error {
 	done := make(chan error)
 	go func() {
 		defer close(done)
-		done <- server.Serve(listener)
+		done <- httpServer.Serve(listener)
 	}()
 
 	if s.config.OnStarted != nil {
@@ -102,8 +108,8 @@ func (s *server) StartAndWait(ctx context.Context) error {
 				break
 			}
 		}
-		s.grpcServer.GracefulStop()
-		_ = server.Shutdown(context.Background())
+		_ = httpServer.Shutdown(context.Background())
+		wait()
 		<-done
 		return nil
 	case err := <-done:

@@ -3,6 +3,7 @@ package grpcmix
 import (
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
 	"golang.org/x/net/http2"
@@ -90,16 +91,19 @@ func (h mixHandler) handle() {
 	}
 }
 
-func newHandler(grpcServer *grpc.Server, httpHandler http.Handler) http.Handler {
+func newHandler(grpcServer *grpc.Server, http2Server *http2.Server, httpHandler http.Handler) (http.Handler, func()) {
 	grpcWeb := grpcweb.WrapServer(grpcServer, grpcweb.WithOriginFunc(func(origin string) bool {
 		return true
 	}))
+	var wg sync.WaitGroup
 	return h2c.NewHandler(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		defer func() {
 			if r := recover(); r != nil {
 				http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			}
 		}()
+		wg.Add(1)
+		defer wg.Done()
 		mixHandler{
 			writer:      writer,
 			request:     request,
@@ -107,5 +111,5 @@ func newHandler(grpcServer *grpc.Server, httpHandler http.Handler) http.Handler 
 			grpcWeb:     grpcWeb,
 			httpHandler: httpHandler,
 		}.handle()
-	}), &http2.Server{})
+	}), http2Server), wg.Wait
 }
