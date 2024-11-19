@@ -12,11 +12,12 @@ import (
 )
 
 type mixHandler struct {
-	writer      http.ResponseWriter
-	request     *http.Request
-	grpcServer  *grpc.Server
-	grpcWeb     *grpcweb.WrappedGrpcServer
-	httpHandler http.Handler
+	writer              http.ResponseWriter
+	request             *http.Request
+	grpcServer          *grpc.Server
+	grpcWeb             *grpcweb.WrappedGrpcServer
+	httpHandler         http.Handler
+	allowPrivateNetwork bool
 }
 
 func (h mixHandler) isGrpc() bool {
@@ -67,6 +68,9 @@ func (h mixHandler) handleGrpcWeb() bool {
 	if (h.grpcWeb.IsGrpcWebRequest(h.request) || h.grpcWeb.IsAcceptableGrpcCorsRequest(h.request)) && h.isRegisteredGrpcPath() {
 		wrapper := wrapBrotli(h.writer, h.request)
 		defer wrapper.Close()
+		if h.allowPrivateNetwork {
+			wrapper.Header().Set("Access-Control-Allow-Private-Network", "true")
+		}
 		h.grpcWeb.ServeHTTP(wrapper, h.request)
 		return true
 	}
@@ -91,8 +95,8 @@ func (h mixHandler) handle() {
 	}
 }
 
-func newHandler(grpcServer *grpc.Server, http2Server *http2.Server, httpHandler http.Handler) (http.Handler, func()) {
-	grpcWeb := grpcweb.WrapServer(grpcServer, grpcweb.WithOriginFunc(func(origin string) bool {
+func (s *server) newHandler(http2Server *http2.Server, httpHandler http.Handler) (http.Handler, func()) {
+	grpcWeb := grpcweb.WrapServer(s.grpcServer, grpcweb.WithOriginFunc(func(origin string) bool {
 		return true
 	}))
 	var wg sync.WaitGroup
@@ -105,11 +109,12 @@ func newHandler(grpcServer *grpc.Server, http2Server *http2.Server, httpHandler 
 		wg.Add(1)
 		defer wg.Done()
 		mixHandler{
-			writer:      writer,
-			request:     request,
-			grpcServer:  grpcServer,
-			grpcWeb:     grpcWeb,
-			httpHandler: httpHandler,
+			writer:              writer,
+			request:             request,
+			grpcServer:          s.grpcServer,
+			grpcWeb:             grpcWeb,
+			httpHandler:         httpHandler,
+			allowPrivateNetwork: s.config.AllowPrivateNetwork,
 		}.handle()
 	}), http2Server), wg.Wait
 }

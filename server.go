@@ -22,11 +22,12 @@ type Server interface {
 }
 
 type Config struct {
-	Port              int
-	ShutdownDelay     time.Duration
-	MaxHeaderBytes    int
-	GrpcServerOptions []grpc.ServerOption
-	OnStarted         func()
+	Port                int
+	ShutdownDelay       time.Duration
+	MaxHeaderBytes      int
+	GrpcServerOptions   []grpc.ServerOption
+	OnStarted           func()
+	AllowPrivateNetwork bool
 }
 
 type server struct {
@@ -58,7 +59,7 @@ func (s *server) StartAndWait(ctx context.Context) error {
 	var connectionClose atomic.Bool
 
 	http2Server := &http2.Server{}
-	handler, wait := newHandler(s.grpcServer, http2Server, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler, wait := s.newHandler(http2Server, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if connectionClose.Load() {
 			w.Header().Set("Connection", "close")
 		}
