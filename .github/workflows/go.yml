@@ -22,5 +22,5 @@ jobs:
         go-version: 1.19
 
     - name: Build
-      run: go mod init github.com/lqs/grpcmix && go mod tidy && go build -v ./...
+      run: go mod init github.com/lqs/grpcmix && go get -u && go build -v ./...
 
