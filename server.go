@@ -28,6 +28,7 @@ type Config struct {
 	GrpcServerOptions   []grpc.ServerOption
 	OnStarted           func()
 	AllowPrivateNetwork bool
+	HTTP2Server         *http2.Server
 }
 
 type server struct {
@@ -58,7 +59,10 @@ func (s *server) GetConnStateMap() map[net.Conn]http.ConnState {
 func (s *server) StartAndWait(ctx context.Context) error {
 	var connectionClose atomic.Bool
 
-	http2Server := &http2.Server{}
+	http2Server := s.config.HTTP2Server
+	if http2Server == nil {
+		http2Server = &http2.Server{}
+	}
 	handler, wait := s.newHandler(http2Server, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if connectionClose.Load() {
 			w.Header().Set("Connection", "close")
