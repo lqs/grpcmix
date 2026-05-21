@@ -21,9 +21,16 @@ type mixHandler struct {
 }
 
 func (h mixHandler) isGrpc() bool {
-	return h.request.ProtoMajor >= 2 &&
-		h.request.Method == http.MethodPost &&
-		h.request.Header.Get("Content-Type") == "application/grpc"
+	if h.request.ProtoMajor < 2 || h.request.Method != http.MethodPost {
+		return false
+	}
+	const prefix = "application/grpc"
+	ct := h.request.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, prefix) {
+		return false
+	}
+	rest := ct[len(prefix):]
+	return rest == "" || rest[0] == '+' || rest[0] == ';'
 }
 
 func (h mixHandler) isRegisteredGrpcPath() bool {
